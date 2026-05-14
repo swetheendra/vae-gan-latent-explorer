@@ -5,13 +5,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from datasets import load_dataset
 from torchvision import transforms, datasets
-import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from torchvision.models import vgg16, VGG16_Weights
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import numpy as np
-import gradio as gr
 import torchvision.transforms as T
 from model_utils import VAE, AlbumentationWrapper
 
