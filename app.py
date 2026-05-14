@@ -18,7 +18,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 vae = VAE()
 vae.to(device)
 
-checkpoint = torch.load("weights/vae_35.pth")
+checkpoint = torch.load("weights/vae_35.pth", map_location=device)
 
 vae.load_state_dict(checkpoint['vae'])
 
