@@ -5,3 +5,4 @@ pillow
 albumentations
 streamlit
 datasets
+gdown
