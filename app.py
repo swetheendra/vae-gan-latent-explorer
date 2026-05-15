@@ -117,7 +117,7 @@ st.markdown("""
     }
     h3 { text-align: center; }
     </style>
-""", unsafe_allow_value=True)
+""", unsafe_allow_html=True)
 
 st.markdown("### VAE Facial Modification Dashboard")
 
