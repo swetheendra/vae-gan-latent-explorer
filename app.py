@@ -114,6 +114,8 @@ st.markdown("""
         border-radius: 6px;
         max-height: 280px;
         object-fit: contain;
+        /* THIS LINE MAKES IT CLEAR */
+        image-rendering: pixelated; 
     }
     h3 { text-align: center; }
     </style>
@@ -151,7 +153,7 @@ with col_display:
         img_tensor = img_tensor.clamp(0.0, 1.0)
         output_pil_image = T.ToPILImage()(img_tensor.cpu())
 
-    st.image(output_pil_image, caption="Generated Output Face", width=280)
+    st.image(output_pil_image, caption="Generated Output Face", use_container_width=True)
     
     st.button(
         label="Load Random Face 👤", 
