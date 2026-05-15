@@ -12,6 +12,7 @@ import torchvision.transforms as T
 import random
 from model_utils import VAE, AlbumentationWrapper
 
+# --- STEP 1: INITIALIZE CONFIG (MUST BE FIRST) ---
 st.set_page_config(page_title="VAE Latent Explorer", layout="wide")
 
 CELEBA_ATTRIBUTES = {
@@ -19,16 +20,10 @@ CELEBA_ATTRIBUTES = {
     "Smiling": 31, "Male": 20, "Straight_Hair": 32, "Wavy_Hair": 33, "Blond_Hair": 9
 }
 
-# --- STEP 2: CACHED DATA LOADING (OPTIMIZED) ---
+# --- STEP 2: CACHED RESOURCE INITIALIZATION ---
 @st.cache_resource
-def get_model_and_vectors():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    vae = VAE()
-    vae.to(device)
-
-    checkpoint = torch.load("weights/vae_35.pth", map_location=device)
-    vae.load_state_dict(checkpoint['vae'])
-
+def get_dataloader():
+    """Initializes and caches the underlying CelebA pipeline data stream."""
     transform = A.Compose([
         A.Resize(height=64, width=64),
         A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
@@ -42,15 +37,27 @@ def get_model_and_vectors():
         download=True,
         transform=AlbumentationWrapper(transform)
     )
+    
+    # 64 batch size speeds up the initial subset slicing loop
+    return DataLoader(celeb_test_dataset, shuffle=True, batch_size=64, num_workers=0, pin_memory=False)
 
-    # Use a larger batch size for faster startup feature gathering
-    testloader = DataLoader(celeb_test_dataset, shuffle=True, batch_size=64, num_workers=0, pin_memory=False)
+
+@st.cache_resource
+def get_model_and_vectors(_testloader):
+    """Loads weights and pre-computes attribute direction vectors using a data subset."""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    vae = VAE()
+    vae.to(device)
+    vae.eval()
+
+    checkpoint = torch.load("weights/vae_35.pth", map_location=device)
+    vae.load_state_dict(checkpoint['vae'])
 
     latents = []
     features = []
 
     with torch.no_grad():
-        for batch in testloader:
+        for batch in _testloader:
             images = batch[0].to(device)
             attributes = batch[1]
 
@@ -59,7 +66,7 @@ def get_model_and_vectors():
             latents.append(mean_images.cpu().numpy())
             features.append(attributes.numpy())
             
-            # CRUCIAL OPTIMIZATION: Stop after 4000 images so startup is instant
+            # Sub-sample optimization limit for fluid server startup speeds
             if len(latents) * 64 >= 4000:
                 break
 
@@ -72,16 +79,25 @@ def get_model_and_vectors():
         positive_mask = features_np[:, val] == 1
         negative_mask = features_np[:, val] == 0
 
-        vector = np.mean(latents_np[positive_mask], axis=0) - np.mean(latents_np[negative_mask], axis=0)
-        latent_vectors[key] = torch.tensor(vector / np.linalg.norm(vector), dtype=torch.float32).to(device)
+        # Protect against empty masks if utilizing highly restrictive filters
+        if np.sum(positive_mask) > 0 and np.sum(negative_mask) > 0:
+            vector = np.mean(latents_np[positive_mask], axis=0) - np.mean(latents_np[negative_mask], axis=0)
+            vector_norm = vector / (np.linalg.norm(vector) + 1e-8)
+        else:
+            vector_norm = np.zeros(latents_np.shape[1])
+            
+        latent_vectors[key] = torch.tensor(vector_norm, dtype=torch.float32).to(device)
 
-    return vae, latent_vectors, device, testloader
+    return vae, latent_vectors, device
 
-vae, latent_vectors, device, testloader = get_model_and_vectors()
+# Resolve cached pipeline layers
+testloader = get_dataloader()
+vae, latent_vectors, device = get_model_and_vectors(testloader)
 
 
+# --- STEP 3: LATENT STATE WORKERS ---
 def get_random_base_latent():
-    # Fetch a random batch from the loader
+    """Extracts a singular baseline feature profile mapping target from pipeline."""
     batch_images, _ = next(iter(testloader))
     random_idx = random.randint(0, batch_images.shape[0] - 1)
     random_single_img = batch_images[random_idx].unsqueeze(0).to(device)
@@ -92,63 +108,68 @@ def get_random_base_latent():
     return z_random_base
 
 
-# Initialize your baseline face tracking session coordinate target safely
+# Enforce safe baseline profile structure initialization across app runs
 if "z_base" not in st.session_state:
     st.session_state.z_base = get_random_base_latent()
 
-# Reset button action logic mapping
-def load_new_face_callback():
-    st.session_state.z_base = get_random_base_latent()
-    # Resetting keys via a separate state clear to prevent render-clashes
-    for feature_name in CELEBA_ATTRIBUTES.keys():
-        if f"slider_{feature_name}" in st.session_state:
-            del st.session_state[f"slider_{feature_name}"]
 
-# --- UI STYLING INJECTORS ---
+def load_new_face_callback():
+    """Mutates baseline state configuration targets and forces slider state reset."""
+    st.session_state.z_base = get_random_base_latent()
+    # Explicitly snap UI component widgets back to zero baseline point
+    for feature_name in CELEBA_ATTRIBUTES.keys():
+        st.session_state[f"slider_{feature_name}"] = 0.0
+
+
+# --- STEP 4: UI AND CSS VIEW RENDERING ---
 st.markdown("""
     <style>
     .stImage img {
         display: block;
         margin-left: auto;
         margin-right: auto;
-        border-radius: 6px;
-        max-height: 280px;
+        border-radius: 8px;
+        max-height: 320px;
         object-fit: contain;
-        /* THIS LINE MAKES IT CLEAR */
+        /* Preserves pixel edges to stop blurriness */
         image-rendering: pixelated; 
     }
-    h3 { text-align: center; }
+    h3 { text-align: center; font-family: sans-serif; }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown("### VAE Facial Modification Dashboard")
 
-# 3. Double-Column Layout Architecture Mapping
 col_sliders, col_display = st.columns([1, 1])
 
-slider_values = []
+slider_values = {}
 with col_sliders:
     for feature_name in CELEBA_ATTRIBUTES.keys():
+        # Inject standard value keys into state tracking pools if missing
+        if f"slider_{feature_name}" not in st.session_state:
+            st.session_state[f"slider_{feature_name}"] = 0.0
+            
         val = st.slider(
             label=feature_name,
             min_value=-3.0,
             max_value=3.0,
-            value=0.0, # Default starting point
             step=0.1,
             key=f"slider_{feature_name}"  
         )
-        slider_values.append(val)
+        slider_values[feature_name] = val
 
 with col_display:
     with torch.no_grad():
-        z_modified_1d = st.session_state.z_base.squeeze(0).clone()
+        # Vectorized latent canvas generation step
+        z_modified = st.session_state.z_base.clone()
         
-        for value, feature_name in zip(slider_values, CELEBA_ATTRIBUTES.keys()):
-            z_modified_1d += float(value) * latent_vectors[feature_name]
+        # Shift latent matrix coordinates cleanly based on active slider positions
+        for feature_name, value in slider_values.items():
+            z_modified += float(value) * latent_vectors[feature_name]
             
-        z_final = z_modified_1d.unsqueeze(0)
-        generated_output = vae.decoder(vae.decoder_input(z_final))
+        generated_output = vae.decoder(vae.decoder_input(z_modified))
         
+        # Rescale image pixels safely to clean PIL storage range [0.0 - 1.0]
         img_tensor = (generated_output.squeeze(0) + 1.0) / 2.0
         img_tensor = img_tensor.clamp(0.0, 1.0)
         output_pil_image = T.ToPILImage()(img_tensor.cpu())
