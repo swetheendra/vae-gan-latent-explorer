@@ -98,12 +98,12 @@ def get_random_base_latent():
 # Initialize data pipeline and cache your 10 direction vectors on startup
 if 'vectors_loaded' not in st.session_state:
     # (Optional) Initialize your validation data loader loop step here
-    # initialize_latent_vectors(val_loader)
+    # initialize_latent_vectors(testloader)
     st.session_state.vectors_loaded = True
 
 # Initialize your baseline face tracking session coordinate target
 if "z_base" not in st.session_state:
-    st.session_state.z_base = get_random_base_latent(val_loader)
+    st.session_state.z_base = get_random_base_latent(testloader)
 
 # 1. UI Page & CSS Alignment Tuning
 st.set_page_config(page_title="VAE Latent Explorer", layout="wide")
