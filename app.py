@@ -36,7 +36,7 @@ celeb_test_dataset = datasets.CelebA(
     transform=AlbumentationWrapper(transform)
 )
 
-testloader = DataLoader(celeb_test_dataset, shuffle=True, batch_size=4, num_workers=3, pin_memory=True)
+testloader = DataLoader(celeb_test_dataset, shuffle=True, batch_size=4, num_workers=0, pin_memory=False)
 
 CELEBA_ATTRIBUTES = {
     "Eyeglasses": 15, "Goatee": 16, "Mustache": 22, "Bald": 4, "Young": 39,
